@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLIST → JSON Converter</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0b0e14;
+    --surface:  #131720;
+    --border:   #1f2736;
+    --accent:   #00e5a0;
+    --accent2:  #005c42;
+    --muted:    #3a4560;
+    --text:     #c8d6f0;
+    --text-dim: #566070;
+    --error:    #ff5577;
+    --warn:     #f0c040;
+    --radius:   6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 60px;
+    background-image:
+      linear-gradient(rgba(0,229,160,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  header { text-align: center; margin-bottom: 40px; animation: fadeDown .6s ease both; }
+  header .tag {
+    display: inline-block; font-size: 10px; letter-spacing: .15em; color: var(--accent);
+    border: 1px solid var(--accent2); padding: 3px 10px; border-radius: 999px;
+    margin-bottom: 14px; text-transform: uppercase;
+  }
+  header h1 { font-family: 'Syne', sans-serif; font-size: clamp(2rem, 5vw, 3.4rem); font-weight: 800; line-height: 1; color: #fff; letter-spacing: -.02em; }
+  header h1 span { color: var(--accent); }
+  header p { margin-top: 10px; color: var(--text-dim); font-size: 12px; line-height: 1.7; }
+  .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 20px; }
+
+  #dropzone {
+    border: 2px dashed var(--muted); border-radius: var(--radius); padding: 50px 30px;
+    text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+    position: relative; animation: fadeUp .5s .1s ease both;
+  }
+  #dropzone.dragover, #dropzone:hover { border-color: var(--accent); background: rgba(0,229,160,.04); }
+  #dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  #dropzone .icon { font-size: 2.4rem; margin-bottom: 12px; }
+  #dropzone p { color: var(--text-dim); line-height: 1.8; }
+  #dropzone strong { color: var(--text); }
+
+  .mode-bar { display: flex; gap: 10px; flex-wrap: wrap; animation: fadeUp .5s .15s ease both; }
+  .mode-bar label {
+    flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 16px; cursor: pointer; transition: border-color .2s, background .2s;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .mode-bar label:has(input:checked) { border-color: var(--accent); background: rgba(0,229,160,.05); }
+  .mode-bar input { display: none; }
+  .mode-bar .dot {
+    width: 14px; height: 14px; border: 2px solid var(--muted); border-radius: 50%;
+    flex-shrink: 0; margin-top: 1px; position: relative; transition: border-color .2s;
+  }
+  .mode-bar label:has(input:checked) .dot { border-color: var(--accent); }
+  .mode-bar label:has(input:checked) .dot::after {
+    content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--accent);
+  }
+  .mode-bar .info strong { display: block; margin-bottom: 2px; font-size: 12px; }
+  .mode-bar .info span  { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+
+  #convertBtn {
+    background: var(--accent); color: #000; border: none; border-radius: var(--radius);
+    padding: 14px 32px; font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700;
+    cursor: pointer; letter-spacing: .05em; transition: opacity .2s, transform .1s;
+    align-self: flex-start; animation: fadeUp .5s .2s ease both;
+  }
+  #convertBtn:hover { opacity: .85; }
+  #convertBtn:active { transform: scale(.97); }
+  #convertBtn:disabled { opacity: .3; cursor: not-allowed; }
+
+  #fileList { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  #fileList.visible { display: block; }
+  #fileList .fl-header { padding: 10px 14px; font-size: 11px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .fl-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .fl-item:last-child { border-bottom: none; }
+  .fl-item .fl-name { flex: 1; color: var(--text); }
+  .fl-item .fl-mode { color: var(--text-dim); font-size: 10px; min-width: 70px; }
+  .fl-item .fl-status { font-size: 11px; min-width: 80px; text-align: right; }
+  .fl-item .fl-status.ok  { color: var(--accent); }
+  .fl-item .fl-status.err { color: var(--error); }
+  .fl-item .fl-status.wait { color: var(--muted); }
+
+  #log { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; font-size: 11px; line-height: 1.9; display: none; }
+  #log.visible { display: block; }
+  #log .ok   { color: var(--accent); }
+  #log .err  { color: var(--error); }
+  #log .warn { color: var(--warn); }
+  #log .info { color: var(--text-dim); }
+  #log .line { display: block; }
+
+  .tabs { display: none; flex-direction: column; gap: 12px; }
+  .tabs.visible { display: flex; }
+  .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab-btn {
+    background: none; border: none; color: var(--text-dim); font-family: 'Space Mono', monospace;
+    font-size: 11px; padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color .15s, border-color .15s;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-panel { display: none; flex-direction: column; gap: 12px; }
+  .tab-panel.active { display: flex; }
+  .out-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .out-header h2 { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; color: var(--text); }
+  .out-header h2 span { color: var(--accent); font-size: .8em; margin-left: 8px; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-sm {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+    border-radius: var(--radius); padding: 6px 14px; font-family: 'Space Mono', monospace;
+    font-size: 11px; cursor: pointer; transition: border-color .2s, color .2s;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .output {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; font-size: 11.5px; line-height: 1.65; overflow: auto; max-height: 480px;
+    white-space: pre; color: var(--text); tab-size: 2;
+  }
+  .j-key  { color: #7aaef5; }
+  .j-str  { color: #98da7a; }
+  .j-num  { color: #f5a97a; }
+  .j-bool { color: var(--accent); }
+  .j-null { color: var(--text-dim); }
+
+  @keyframes fadeDown { from{opacity:0;transform:translateY(-16px)} to{opacity:1;transform:none} }
+  @keyframes fadeUp   { from{opacity:0;transform:translateY(12px)}  to{opacity:1;transform:none} }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--muted); border-radius:3px; }
+  footer { margin-top: 50px; color: var(--text-dim); font-size: 11px; text-align: center; opacity: .5; }
+
+  /* ── MOBILE ── */
+  @media (max-width: 640px) {
+    body { padding: 24px 14px 48px; }
+    header { margin-bottom: 28px; }
+    header h1 { font-size: clamp(1.7rem, 8vw, 2.4rem); }
+    header p { font-size: 11px; }
+
+    .container { gap: 14px; }
+
+    #dropzone { padding: 32px 16px; }
+    #dropzone .icon { font-size: 2rem; margin-bottom: 8px; }
+    #dropzone p { font-size: 12px; line-height: 1.7; }
+
+    /* Modo: una columna en móvil */
+    .mode-bar { flex-direction: column; gap: 8px; }
+    .mode-bar label { min-width: unset; padding: 10px 14px; }
+    .mode-bar .info strong { font-size: 11px; }
+    .mode-bar .info span  { font-size: 10px; }
+
+    /* Botón convertir: ancho completo */
+    #convertBtn { align-self: stretch; text-align: center; padding: 14px 20px; }
+
+    /* Lista de archivos */
+    .fl-item { flex-wrap: wrap; gap: 4px; padding: 10px 12px; }
+    .fl-item .fl-name { width: 100%; font-size: 11px; word-break: break-all; }
+    .fl-item .fl-mode,
+    .fl-item .fl-status { font-size: 10px; min-width: unset; }
+
+    /* Log */
+    #log { font-size: 10px; padding: 10px 12px; }
+
+    /* Tabs: scroll horizontal */
+    .tab-bar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding-bottom: 2px; }
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab-btn { white-space: nowrap; font-size: 10px; padding: 7px 10px; flex-shrink: 0; }
+
+    /* Output header: apila verticalmente */
+    .out-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .out-header h2 { font-size: .9rem; }
+    .btn-row { width: 100%; }
+    .btn-sm { flex: 1; text-align: center; font-size: 10px; padding: 8px 10px; }
+
+    /* Área de código: altura reducida, scroll horizontal */
+    .output { max-height: 320px; font-size: 10.5px; padding: 12px; }
+  }
+
+  @media (max-width: 380px) {
+    body { padding: 18px 10px 40px; }
+    header h1 { font-size: 1.5rem; }
+    .output { font-size: 9.5px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tag">Cocos2d · GMS2</div>
+  <h1>PLIST <span>→</span> JSON</h1>
+  <p>Convierte atlas de sprites y descripciones de animación<br>de Geometry Dash a JSON legible por GameMaker.</p>
+</header>
+
+<div class="container">
+
+  <div id="dropzone">
+    <input type="file" id="fileInput" accept=".plist" multiple>
+    <div class="icon">📂</div>
+    <p><strong>Arrastra uno o varios .plist aquí</strong><br>o haz clic para seleccionarlos</p>
+  </div>
+
+  <div class="mode-bar">
+    <label>
+      <input type="radio" name="mode" value="auto" checked>
+      <div class="dot"></div>
+      <div class="info">
+        <strong>Auto-detect</strong>
+        <span>Detecta si es AnimDesc<br>según las claves del plist</span>
+      </div>
+    </label>
+    <label>
+      <input type="radio" name="mode" value="shopsheet">
+      <div class="dot"></div>
+      <div class="info">
+        <strong>ShopSheet / Sprite Atlas</strong>
+        <span>frames + metadata → posiciones<br>en el atlas PNG</span>
+      </div>
+    </label>
+    <label>
+      <input type="radio" name="mode" value="animdesc">
+      <div class="dot"></div>
+      <div class="info">
+        <strong>AnimDesc / Animaciones</strong>
+        <span>animationContainer → frames<br>con partes multi-sprite</span>
+      </div>
+    </label>
+  </div>
+
+  <button id="convertBtn" disabled>▶ Convertir</button>
+
+  <div id="fileList">
+    <div class="fl-header">Archivos cargados</div>
+    <div id="fileListItems"></div>
+  </div>
+
+  <div id="log"></div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab-bar" id="tabBar"></div>
+  </div>
+
+</div>
+
+<footer>plist_to_json · Variantes Cocos2d</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  PLIST XML PARSER
+//  Robusto ante: BOM, \r\n antes del <?xml, DOCTYPE externos,
+//  tagName en cualquier case, claves con espacios alrededor
+// ═══════════════════════════════════════════════════════════════
+
+function parsePlistDict(elem) {
+  const result = {};
+  const ch = [...elem.children];
+  for (let i = 0; i + 1 < ch.length; i += 2) {
+    result[ch[i].textContent.trim()] = parsePlistValue(ch[i + 1]);
+  }
+  return result;
+}
+
+function parsePlistValue(elem) {
+  switch (elem.tagName.toLowerCase()) {
+    case 'dict':    return parsePlistDict(elem);
+    case 'array':   return [...elem.children].map(parsePlistValue);
+    case 'string':  return elem.textContent;   // sin trim: preservar strings vacíos
+    case 'integer': return parseInt(elem.textContent.trim(), 10);
+    case 'real':    return parseFloat(elem.textContent.trim());
+    case 'true':    return true;
+    case 'false':   return false;
+    default:        return elem.textContent;
+  }
+}
+
+function loadPlist(rawText) {
+  // 1. Quitar BOM (U+FEFF) y whitespace/CRLF antes del <?xml
+  let xml = rawText.replace(/^\uFEFF/, '').replace(/^[\s\r\n]+(<\?xml)/m, '$1');
+
+  const parser = new DOMParser();
+  let doc = parser.parseFromString(xml, 'application/xml');
+
+  // 2. Si hay parsererror, intentar sin DOCTYPE (algunos navegadores fallan con DTD externas)
+  if (doc.querySelector('parsererror')) {
+    const noDTD = xml.replace(/<!DOCTYPE\s[^[>]*(?:\[[^\]]*\])?\s*>/is, '');
+    doc = parser.parseFromString(noDTD, 'application/xml');
+  }
+
+  if (doc.querySelector('parsererror')) {
+    const msg = doc.querySelector('parsererror').textContent.trim().slice(0, 300);
+    throw new Error('XML inválido: ' + msg);
+  }
+
+  // Soportar <plist><dict> y raíz directa <dict>
+  const dictRoot = doc.querySelector('plist > dict') || doc.querySelector('dict');
+  if (!dictRoot) throw new Error('No se encontró el elemento <dict> raíz del plist.');
+  return parsePlistDict(dictRoot);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PARSERS DE STRINGS COcos2d
+//  Soportan espacios: "{0, -20.5}", "{1.00000, 1.00000}", "{0, 0}"
+// ═══════════════════════════════════════════════════════════════
+
+function parseV2(s) {
+  const inner = String(s).trim().replace(/^\{|\}$/g, '');
+  const ci = inner.indexOf(',');
+  return [
+    parseFloat(inner.slice(0, ci).trim()),
+    parseFloat(inner.slice(ci + 1).trim())
+  ];
+}
+
+function parseRect(s) {
+  // "{{x,y},{w,h}}" — tolerante a espacios
+  const m = String(s).trim().match(
+    /\{\s*\{\s*([^,}]+?)\s*,\s*([^}]+?)\s*\}\s*,\s*\{\s*([^,}]+?)\s*,\s*([^}]+?)\s*\}\s*\}/
+  );
+  if (!m) throw new Error('No se pudo parsear rect: ' + s);
+  return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), parseFloat(m[4])];
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CONVERSORES PRINCIPALES
+// ═══════════════════════════════════════════════════════════════
+
+function convertShopsheet(data) {
+  const meta = data['metadata'];
+  if (!meta) throw new Error('"metadata" no encontrado. ¿Es realmente un ShopSheet?');
+  if (!data['frames']) throw new Error('"frames" no encontrado.');
+
+  const [tw, th] = parseV2(meta['size']);
+  // TexturePacker usa "textureFileName"; versiones más nuevas usan "realTextureFileName"
+  const texFile = meta['textureFileName'] || meta['realTextureFileName'] || '';
+
+  const framesOut = {};
+  for (const [name, f] of Object.entries(data['frames'])) {
+    const [ox, oy]      = parseV2(f['spriteOffset']);
+    const [sw, sh]      = parseV2(f['spriteSize']);
+    const [ssw, ssh]    = parseV2(f['spriteSourceSize']);
+    const [rx, ry, rw, rh] = parseRect(f['textureRect']);
+    // textureRotated puede venir como boolean (true/false tag) o string "YES"/"NO" (formato antiguo)
+    const rotated = f['textureRotated'] === true || String(f['textureRotated']).toUpperCase() === 'YES';
+
+    framesOut[name] = {
+      x: rx, y: ry,
+      w: rw, h: rh,
+      // w,h = dimensiones lógicas. Con rotated=true, las reales en atlas son h×w.
+      spriteW: sw, spriteH: sh,
+      sourceW: ssw, sourceH: ssh,
+      // Cocos2d Y-up. En GMS2 (Y-down) hay que negar offsetY al renderizar.
+      offsetX: ox, offsetY: oy,
+      rotated
+    };
+  }
+
+  return { texture: texFile, textureW: tw, textureH: th, frames: framesOut };
+}
+
+function convertAnimDesc(data) {
+  if (!data['animationContainer']) {
+    throw new Error('"animationContainer" no encontrado. ¿Es realmente un AnimDesc?');
+  }
+
+  // usedTextures — "texture" puede ser nombre de archivo o string numérico ("0")
+  const usedTex = {};
+  for (const [k, v] of Object.entries(data['usedTextures'] || {})) {
+    usedTex[k] = { texture: String(v['texture']), tag: parseInt(String(v['tag']), 10) };
+  }
+
+  // baseVariantID — intenta extraerlo del primer nombre de textura con número
+  let baseVariantID = null;
+  for (const v of Object.values(data['usedTextures'] || {})) {
+    const tex = String(v['texture'] || '');
+    const m = tex.match(/[_-](\d+)[_-]/);   // shopKeeper_01_ o similar
+    if (m && isNaN(Number(tex))) { baseVariantID = m[1]; break; }
+  }
+
+  const animOut     = {};
+  const frameCounts = {};
+  const frameNames  = {};
+  const DEG_TO_RAD  = Math.PI / 180;
+
+  for (const [frameName, partsRaw] of Object.entries(data['animationContainer'])) {
+    // Ordenar sprite_0, sprite_1 … numéricamente (no lexicográficamente)
+    const sortedKeys = Object.keys(partsRaw).sort((a, b) => {
+      const na = parseInt(a.replace(/\D+/g, '') || '0', 10);
+      const nb = parseInt(b.replace(/\D+/g, '') || '0', 10);
+      return na - nb;
+    });
+
+    const parts = sortedKeys.map(sk => {
+      const sp = partsRaw[sk];
+
+      const [px, py]   = parseV2(sp['position']);
+      const [scx, scy] = parseV2(sp['scale']);
+      const [fx, fy]   = parseV2(sp['flipped']);
+      const rot  = parseFloat(String(sp['rotation']));
+      const zVal = parseInt(String(sp['zValue']), 10);
+      const rad  = rot * DEG_TO_RAD;
+
+      return {
+        texture:       String(sp['texture']),
+        tag:           parseInt(String(sp['tag']), 10),
+        usesCustomTag: parseInt(String(sp['usesCustomTag']), 10),
+        x: px, y: py,
+        scaleX: scx, scaleY: scy,
+        rotation: rot,
+        flipX: Math.round(fx),
+        flipY: Math.round(fy),
+        zValue: zVal,
+        cosRot: Math.cos(rad),
+        sinRot: Math.sin(rad),
+        flipXMul: Math.round(fx) ? -1.0 : 1.0,
+        flipYMul: Math.round(fy) ? -1.0 : 1.0,
+      };
+    });
+
+    parts.sort((a, b) => a.zValue - b.zValue);
+    animOut[frameName] = parts;
+
+    // Agrupar: "GJShopKeeper_idle00_001.png" → "GJShopKeeper_idle00"
+    const animName = frameName.replace(/_\d+\.png$/i, '');
+    if (!frameNames[animName]) frameNames[animName] = [];
+    frameNames[animName].push(frameName);
+    frameCounts[animName] = (frameCounts[animName] || 0) + 1;
+  }
+
+  return {
+    baseVariantID,
+    usedTextures: usedTex,
+    animationContainer: animOut,
+    _frame_counts: frameCounts,
+    _frame_names:  frameNames,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUTO-DETECT
+// ═══════════════════════════════════════════════════════════════
+
+function detectMode(data) {
+  if (data['animationContainer'])              return 'animdesc';
+  if (data['frames'] && data['metadata'])      return 'shopsheet';
+  if (data['frames'])                          return 'shopsheet'; // metadata ausente pero frames presente
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  JSON SYNTAX HIGHLIGHT
+// ═══════════════════════════════════════════════════════════════
+
+function highlight(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g, m => {
+      if (/^"/.test(m)) return /:$/.test(m) ? `<span class="j-key">${m}</span>` : `<span class="j-str">${m}</span>`;
+      if (/true|false/.test(m)) return `<span class="j-bool">${m}</span>`;
+      if (/null/.test(m))       return `<span class="j-null">${m}</span>`;
+      return `<span class="j-num">${m}</span>`;
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════
+
+let pendingFiles = [];
+const results    = [];
+
+const dropzone      = document.getElementById('dropzone');
+const fileInput     = document.getElementById('fileInput');
+const convertBtn    = document.getElementById('convertBtn');
+const logEl         = document.getElementById('log');
+const tabsEl        = document.getElementById('tabs');
+const tabBar        = document.getElementById('tabBar');
+const fileListEl    = document.getElementById('fileList');
+const fileListItems = document.getElementById('fileListItems');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  setFiles([...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.plist')));
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) setFiles([...fileInput.files]);
+});
+
+function setFiles(files) {
+  if (!files.length) return;
+  pendingFiles = files;
+  results.length = 0;
+
+  dropzone.querySelector('p').innerHTML = files.length === 1
+    ? `<strong>${files[0].name}</strong><br><span style="color:var(--text-dim)">${(files[0].size/1024).toFixed(1)} KB · listo para convertir</span>`
+    : `<strong>${files.length} archivos</strong><br><span style="color:var(--text-dim)">${files.map(f=>f.name).join(' · ')}</span>`;
+
+  fileListItems.innerHTML = files.map((f, i) => `
+    <div class="fl-item">
+      <span class="fl-name">${f.name}</span>
+      <span class="fl-mode" id="flm-${i}">–</span>
+      <span class="fl-status wait" id="fls-${i}">pendiente</span>
+    </div>`).join('');
+  fileListEl.classList.add('visible');
+
+  logEl.innerHTML = '';
+  logEl.classList.remove('visible');
+  tabsEl.classList.remove('visible');
+  convertBtn.disabled = false;
+}
+
+function log(msg, cls = 'info') {
+  const s = document.createElement('span');
+  s.className = 'line ' + cls;
+  s.textContent = msg;
+  logEl.appendChild(s);
+  logEl.classList.add('visible');
+}
+
+convertBtn.addEventListener('click', async () => {
+  logEl.innerHTML = '';
+  logEl.classList.remove('visible');
+  tabsEl.classList.remove('visible');
+  tabBar.innerHTML = '';
+  tabsEl.querySelectorAll('.tab-panel').forEach(p => p.remove());
+  results.length = 0;
+
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+
+  for (let i = 0; i < pendingFiles.length; i++) {
+    const file = pendingFiles[i];
+    const statusEl = document.getElementById(`fls-${i}`);
+    const modeEl   = document.getElementById(`flm-${i}`);
+    statusEl.textContent = 'procesando…';
+    statusEl.className = 'fl-status wait';
+
+    try {
+      const text = await readFileAsText(file);
+      const data = loadPlist(text);
+
+      let actualMode = mode === 'auto' ? detectMode(data) : mode;
+      if (!actualMode) throw new Error('Tipo desconocido. Selecciona el modo manualmente.');
+
+      let result, label;
+      if (actualMode === 'shopsheet') {
+        result = convertShopsheet(data);
+        const cnt = Object.keys(result.frames).length;
+        label = `ShopSheet · ${cnt} sprites`;
+        modeEl.textContent = 'ShopSheet';
+        log(`✓ ${file.name} — ${cnt} sprites, textura: ${result.texture || '(sin nombre)'}`, 'ok');
+      } else {
+        result = convertAnimDesc(data);
+        const fc = Object.keys(result.animationContainer).length;
+        const ac = Object.keys(result._frame_counts).length;
+        label = `AnimDesc · ${fc} frames · ${ac} anims`;
+        modeEl.textContent = 'AnimDesc';
+        log(`✓ ${file.name} — ${fc} frames, ${ac} animaciones: ${Object.keys(result._frame_counts).join(', ')}`, 'ok');
+      }
+
+      const jsonStr = JSON.stringify(result, null, 2);
+      const outName = file.name.replace(/\.plist$/i, '.json');
+      results.push({ filename: outName, json: jsonStr, label });
+      addTab(results.length - 1, outName, label, jsonStr);
+      statusEl.textContent = '✓ OK';
+      statusEl.className = 'fl-status ok';
+
+    } catch (err) {
+      statusEl.textContent = '✗ Error';
+      statusEl.className = 'fl-status err';
+      log(`✗ ${file.name}: ${err.message}`, 'err');
+    }
+  }
+
+  if (results.length > 0) {
+    tabsEl.classList.add('visible');
+    tabBar.querySelector('.tab-btn')?.click();
+  }
+});
+
+function readFileAsText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = () => rej(new Error('No se pudo leer el archivo.'));
+    r.readAsText(file, 'UTF-8');
+  });
+}
+
+function addTab(idx, filename, label, jsonStr) {
+  const btn = document.createElement('button');
+  btn.className = 'tab-btn';
+  btn.textContent = filename;
+  btn.dataset.idx = idx;
+  btn.addEventListener('click', () => activateTab(idx));
+  tabBar.appendChild(btn);
+
+  const panel = document.createElement('div');
+  panel.className = 'tab-panel';
+  panel.id = `panel-${idx}`;
+  panel.innerHTML = `
+    <div class="out-header">
+      <h2>Resultado <span>${label}</span></h2>
+      <div class="btn-row">
+        <button class="btn-sm" id="cp-${idx}">Copiar</button>
+        <button class="btn-sm" id="dl-${idx}">⬇ Descargar .json</button>
+      </div>
+    </div>
+    <div class="output">${highlight(jsonStr)}</div>`;
+  tabsEl.appendChild(panel);
+
+  document.getElementById(`cp-${idx}`).addEventListener('click', e => {
+    navigator.clipboard.writeText(results[idx].json).then(() => {
+      e.target.textContent = '✓ Copiado';
+      setTimeout(() => e.target.textContent = 'Copiar', 1500);
+    });
+  });
+  document.getElementById(`dl-${idx}`).addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([results[idx].json], { type: 'application/json' }));
+    a.download = results[idx].filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+}
+
+function activateTab(idx) {
+  tabsEl.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', +b.dataset.idx === idx));
+  tabsEl.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${idx}`));
+}
+</script>
+</body>
+</html>
